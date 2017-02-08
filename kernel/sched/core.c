@@ -76,6 +76,8 @@
 #include <linux/frame.h>
 #include <linux/prefetch.h>
 
+#include <linux/sched/loadavg.h>
+
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
 #include <asm/irq_regs.h>
