@@ -32,3 +32,4 @@ obj-$(CONFIG_HISI_CORE_CTRL) += hisi_core_ctl.o
 obj-$(CONFIG_HISI_RTG) += hisi_rtg.o
 obj-y += boost.o
 obj-y += frame/
+obj-$(CONFIG_PSI) += psi.o

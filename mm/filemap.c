@@ -38,6 +38,8 @@
 #include <linux/hisi/pagecache_manage.h>
 #include <linux/hisi/pagecache_debug.h>
 #include <linux/hisi/page_tracker.h>
+#include <linux/delayacct.h>
+#include <linux/psi.h>
 #include "internal.h"
 #include <linux/iolimit_cgroup.h>
 #ifdef CONFIG_TASK_PROTECT_LRU
