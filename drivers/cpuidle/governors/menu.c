@@ -136,11 +136,7 @@ struct menu_device {
 	int		interval_ptr;
 };
 
-
-#define LOAD_INT(x) ((x) >> FSHIFT)
-#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
 #define BIT(nr) (1UL << (nr))
-
 
 /* 60 * 60 > STDDEV_THRESH * INTERVALS = 400 * 8 */
 #define MAX_DEVIATION 60
@@ -230,6 +226,7 @@ static enum hrtimer_restart menu_hrtimer_notify(struct hrtimer *phrtimer)
 	return HRTIMER_NORESTART;
 }
 /*lint +e64 +e507 +e530 */
+
 static inline int get_loadavg(unsigned long load)
 {
 	return LOAD_INT(load) * 10 + LOAD_FRAC(load) / 10;
