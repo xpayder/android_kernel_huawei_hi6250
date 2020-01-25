@@ -47,7 +47,9 @@
 #include <linux/prefetch.h>
 #include <linux/printk.h>
 #include <linux/dax.h>
+#ifdef CONFIG_ANDROID_SIMPLE_LMK
 #include <linux/simple_lmk.h>
+#endif
 
 #ifdef CONFIG_HUAWEI_RCC
 #include <linux/version.h>
@@ -3644,7 +3646,9 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 		bool raise_priority = true;
 
 		sc.reclaim_idx = classzone_idx;
+#ifdef CONFIG_ANDROID_SIMPLE_LMK
 		simple_lmk_decide_reclaim(sc.priority);
+#endif
 
 		/*
 		 * If the number of buffer_heads exceeds the maximum allowed
