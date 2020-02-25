@@ -47,14 +47,13 @@
 #include <linux/prefetch.h>
 #include <linux/printk.h>
 #include <linux/dax.h>
-#ifdef CONFIG_ANDROID_SIMPLE_LMK
-#include <linux/simple_lmk.h>
-#endif
 
 #ifdef CONFIG_HUAWEI_RCC
 #include <linux/version.h>
 #include <linux/vmstat.h>
 #endif
+
+#include <linux/psi.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
