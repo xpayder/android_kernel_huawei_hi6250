@@ -191,7 +191,7 @@ static void max_unboost_worker(struct work_struct *work)
 	struct boost_drv *b = container_of(to_delayed_work(work),
 					   typeof(*b), max_unboost);
 
-	#ifdef CONFIG_DYNAMIC_STUNE_BOOST
+#ifdef CONFIG_DYNAMIC_STUNE_BOOST
 	if (stune_boost_active) {
 		reset_stune_boost("top-app", boost_slot);
 		stune_boost_active = false;
