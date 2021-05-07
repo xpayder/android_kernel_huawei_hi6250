@@ -18,8 +18,9 @@
 
 #include "sched.h"
 #include "tune.h"
-#ifdef CONFIG_HISI_CPU_FREQ_GOV_SCHEDUTIL
+
 #include "walt.h"
+#ifdef CONFIG_HISI_CPU_FREQ_GOV_SCHEDUTIL
 #include <linux/hisi_rtg.h>
 
 #define CREATE_TRACE_POINTS
