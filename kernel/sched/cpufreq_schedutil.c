@@ -397,6 +397,8 @@ static void sugov_exit(struct cpufreq_policy *policy)
 	struct sugov_policy *sg_policy = policy->governor_data;
 	struct sugov_tunables *tunables = sg_policy->tunables;
 	unsigned int count;
+    
+    cpufreq_disable_fast_switch(policy);
 
 	mutex_lock(&global_tunables_lock);
 
