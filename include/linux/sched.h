@@ -2382,6 +2382,9 @@ struct task_struct {
 	/* A live task holds one reference. */
 	atomic_t stack_refcount;
 #endif
+#ifdef CONFIG_ANDROID_SIMPLE_LMK
+	struct task_struct		*simple_lmk_next;
+#endif
 #ifdef CONFIG_HISI_SWAP_ZDATA
 	struct reclaim_result *proc_reclaimed_result;
 #endif
