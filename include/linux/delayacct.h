@@ -77,7 +77,6 @@ struct task_delay_info {
 	u64 allocuser_delay_max;
 	u64 allocuser_delay_max_order;
 	
-};
 #endif
 };
 #endif	/* CONFIG_TASK_DELAY_ACCT */
