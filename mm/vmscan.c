@@ -3655,9 +3655,6 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 		bool raise_priority = true;
 
 		sc.reclaim_idx = classzone_idx;
-#ifdef CONFIG_ANDROID_SIMPLE_LMK
-		simple_lmk_decide_reclaim(sc.priority);
-#endif
 
 		/*
 		 * If the number of buffer_heads exceeds the maximum allowed
