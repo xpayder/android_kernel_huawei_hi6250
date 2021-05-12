@@ -127,6 +127,7 @@
  * sampling of the aggregate task states would be.
  */
 
+#include "../workqueue_internal.h"
 #include <linux/sched/loadavg.h>
 #include <linux/seq_file.h>
 #include <linux/proc_fs.h>
@@ -146,9 +147,9 @@ static int psi_bug __read_mostly;
 DEFINE_STATIC_KEY_FALSE(psi_disabled);
 
 #ifdef CONFIG_PSI_DEFAULT_DISABLED
-bool psi_enable;
+static bool psi_enable;
 #else
-bool psi_enable = true;
+static bool psi_enable = true;
 #endif
 static int __init setup_psi(char *str)
 {
@@ -242,6 +243,8 @@ static void get_recent_times(struct psi_group *group, int cpu,
 	unsigned int seq;
 	u32 state_mask;
 
+	*pchanged_states = 0;
+
 	/* Snapshot a coherent view of the CPU state */
 	do {
 		seq = read_seqcount_begin(&groupc->seq);
@@ -270,6 +273,8 @@ static void get_recent_times(struct psi_group *group, int cpu,
 		groupc->times_prev[aggregator][s] = times[s];
 
 		times[s] = delta;
+		if (delta)
+			*pchanged_states |= (1 << s);
 	}
 }
 
@@ -298,13 +303,10 @@ static void collect_percpu_times(struct psi_group *group,
 				 u32 *pchanged_states)
 {
 	u64 deltas[NR_PSI_STATES - 1] = { 0, };
-	unsigned long missed_periods = 0;
 	unsigned long nonidle_total = 0;
-	u64 now, expires, period;
+	u32 changed_states = 0;
 	int cpu;
 	int s;
-
-	mutex_lock(&group->avgs_lock);
 
 	/*
 	 * Collect the per-cpu time buckets and average them into a
@@ -317,6 +319,7 @@ static void collect_percpu_times(struct psi_group *group,
 	for_each_possible_cpu(cpu) {
 		u32 times[NR_PSI_STATES];
 		u32 nonidle;
+		u32 cpu_changed_states;
 
 		get_recent_times(group, cpu, aggregator, times,
 				&cpu_changed_states);
@@ -346,12 +349,20 @@ static void collect_percpu_times(struct psi_group *group,
 		group->total[aggregator][s] +=
 				div_u64(deltas[s], max(nonidle_total, 1UL));
 
+	if (pchanged_states)
+		*pchanged_states = changed_states;
+}
+
+static u64 update_averages(struct psi_group *group, u64 now)
+{
+	unsigned long missed_periods = 0;
+	u64 expires, period;
+	u64 avg_next_update;
+	int s;
+
 	/* avgX= */
-	now = sched_clock();
 	expires = group->avg_next_update;
-	if (now < expires)
-		goto out;
-	if (now - expires > psi_period)
+	if (now - expires >= psi_period)
 		missed_periods = div_u64(now - expires, psi_period);
 
 	/*
@@ -361,7 +372,7 @@ static void collect_percpu_times(struct psi_group *group,
 	 * But the deltas we sample out of the per-cpu buckets above
 	 * are based on the actual time elapsing between clock ticks.
 	 */
-	group->avg_next_update = expires + ((1 + missed_periods) * psi_period);
+	avg_next_update = expires + ((1 + missed_periods) * psi_period);
 	period = now - (group->avg_last_update + (missed_periods * psi_period));
 	group->avg_last_update = now;
 
@@ -391,16 +402,17 @@ static void collect_percpu_times(struct psi_group *group,
 		group->avg_total[s] += sample;
 		calc_avgs(group->avg[s], missed_periods, sample, period);
 	}
-out:
-	mutex_unlock(&group->avgs_lock);
-	return nonidle_total;
+
+	return avg_next_update;
 }
 
 static void psi_avgs_work(struct work_struct *work)
 {
 	struct delayed_work *dwork;
 	struct psi_group *group;
+	u32 changed_states;
 	bool nonidle;
+	u64 now;
 
 	dwork = to_delayed_work(work);
 	group = container_of(dwork, struct psi_group, avgs_work);
@@ -418,19 +430,15 @@ static void psi_avgs_work(struct work_struct *work)
 	 * Once restarted, we'll catch up the running averages in one
 	 * go - see calc_avgs() and missed_periods.
 	 */
-
-	nonidle = update_stats(group);
+	if (now >= group->avg_next_update)
+		group->avg_next_update = update_averages(group, now);
 
 	if (nonidle) {
-		unsigned long delay = 0;
-		u64 now;
-
-		now = sched_clock();
-		if (group->avg_next_update > now)
-			delay = nsecs_to_jiffies(
-					group->avg_next_update - now) + 1;
-		schedule_delayed_work(dwork, delay);
+		schedule_delayed_work(dwork, nsecs_to_jiffies(
+				group->avg_next_update - now) + 1);
 	}
+
+	mutex_unlock(&group->avgs_lock);
 }
 
 /* Trigger tracking window manupulations */
@@ -739,6 +747,7 @@ void psi_task_change(struct task_struct *task, int clear, int set)
 {
 	int cpu = task_cpu(task);
 	struct psi_group *group;
+	bool wake_clock = true;
 	void *iter = NULL;
 
 	if (!task->pid)
@@ -906,36 +915,31 @@ void cgroup_move_task(struct task_struct *task, struct css_set *to)
 
 	rq = task_rq_lock(task, &rf);
 
-		if (task_on_rq_queued(task))
-			task_flags = TSK_RUNNING;
-		else if (task->in_iowait)
-			task_flags = TSK_IOWAIT;
+	if (task_on_rq_queued(task))
+		task_flags = TSK_RUNNING;
+	else if (task->in_iowait)
+		task_flags = TSK_IOWAIT;
 
-		if (task->flags & PF_MEMSTALL)
-			task_flags |= TSK_MEMSTALL;
+	if (task->flags & PF_MEMSTALL)
+		task_flags |= TSK_MEMSTALL;
 
-		if (task_flags)
-			psi_task_change(task, task_flags, 0);
-	}
+	if (task_flags)
+		psi_task_change(task, task_flags, 0);
 
-	/*
-	 * Lame to do this here, but the scheduler cannot be locked
-	 * from the outside, so we move cgroups from inside sched/.
-	 */
+	/* See comment above */
 	rcu_assign_pointer(task->cgroups, to);
 
-	if (move_psi) {
-		if (task_flags)
-			psi_task_change(task, 0, task_flags);
+	if (task_flags)
+		psi_task_change(task, 0, task_flags);
 
-		task_rq_unlock(rq, task, &rf);
-	}
+	task_rq_unlock(rq, task, &rf);
 }
 #endif /* CONFIG_CGROUPS */
 
 int psi_show(struct seq_file *m, struct psi_group *group, enum psi_res res)
 {
 	int full;
+	u64 now;
 
 	if (static_branch_likely(&psi_disabled))
 		return -EOPNOTSUPP;
@@ -1047,7 +1051,7 @@ struct psi_trigger *psi_trigger_create(struct psi_group *group,
 
 	if (!rcu_access_pointer(group->poll_kworker)) {
 		struct sched_param param = {
-			.sched_priority = MAX_RT_PRIO - 1,
+			.sched_priority = 1,
 		};
 		struct kthread_worker *kworker;
 
@@ -1057,7 +1061,7 @@ struct psi_trigger *psi_trigger_create(struct psi_group *group,
 			mutex_unlock(&group->trigger_lock);
 			return ERR_CAST(kworker);
 		}
-		sched_setscheduler(kworker->task, SCHED_FIFO, &param);
+		sched_setscheduler_nocheck(kworker->task, SCHED_FIFO, &param);
 		kthread_init_delayed_work(&group->poll_work,
 				psi_poll_work);
 		rcu_assign_pointer(group->poll_kworker, kworker);
@@ -1127,7 +1131,15 @@ static void psi_trigger_destroy(struct kref *ref)
 	 * deadlock while waiting for psi_poll_work to acquire trigger_lock
 	 */
 	if (kworker_to_destroy) {
+		/*
+		 * After the RCU grace period has expired, the worker
+		 * can no longer be found through group->poll_kworker.
+		 * But it might have been already scheduled before
+		 * that - deschedule it cleanly before destroying it.
+		 */
 		kthread_cancel_delayed_work_sync(&group->poll_work);
+		atomic_set(&group->poll_scheduled, 0);
+
 		kthread_destroy_worker(kworker_to_destroy);
 	}
 	kfree(t);
